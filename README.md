@@ -6,13 +6,14 @@ To compile, run `make`.
 
 To start the server, run `./server`
 
-The server currently supports three endpoints:
+The server currently supports six endpoints:
 
 1. `GET /api/hello` - Returns a hello message
 2. `POST /api/echo` - Echoes back the JSON request body
-3. `GET /api/cached` - Simulates an expensive GET operation (WIP)
-4. `GET /api/cache/stats` - Access cache statistics
-5. `POST /api/cache/clear` - Clear cache
+3. `POST /api/cached` - Caches a JSON entry into the server cache
+4. `GET /api/cached` - Attempts to access a key and return its data
+5. `GET /api/cache/stats` - Access cache statistics
+6. `POST /api/cache/clear` - Clear cache
 
 You can test with `curl` by running the following on a separate terminal instance after starting the server:
 
@@ -22,9 +23,12 @@ You can test with `curl` by running the following on a separate terminal instanc
 - `POST /api/echo`
   - `curl -X POST -H "Content-Type: application/json" -d '{"test":"data"}' http://localhost:8080/api/echo`
   - Expected: `{"echo":{"test":"data"},"status":"success"}`
+- `POST /api/cached`
+  - `curl -X POST http://localhost:8080/api/cached -H "Content-Type: application/json" -d '{"key": "user123", "value": "John Doe", "ttl": 60}`
+  - Expected: `{"key":"user123","message":"Entry cached successfully","status":"success","ttl":60}`
 - `GET /api/cached`
-  - `curl http://localhost:8080/api/cached`
-  - Expected: `{"message": "This response was expensive to compute! :(", "cached": false, "timestamp": 1697673245000}`
+  - `curl http://localhost:8080/api/cached/user123`
+  - Expected: `{"key":"user123","status":"success","value":"John Doe"}`
 - `GET /api/cache/stats`
   - `curl http://localhost:8080/api/cache/stats`
   - Expected: `{"cache_capacity":1024,"cache_size":1}`
