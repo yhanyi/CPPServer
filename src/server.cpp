@@ -52,11 +52,21 @@ private:
       }
     }
 
-    else if (request.find("GET /api/cached") != std::string::npos) {
-      std::string key = request.substr(request.find("/api/cached") + 12);
-      key = key.substr(0, key.find(" "));
+    else if (request.find("GET /api/cached/") != std::string::npos) {
+      size_t start_pos = request.find("/api/cached/") + 12;
+      size_t end_pos = request.find(" HTTP/");
 
+      if (start_pos == std::string::npos || end_pos == std::string::npos ||
+          start_pos >= end_pos) {
+        json error = {{"error", "Invalid request"}, {"status", "error"}};
+        return "HTTP/1.1 400 Bad Request\r\nContent-Type: "
+               "application/json\r\n\r\n" +
+               error.dump();
+      }
+
+      std::string key = request.substr(start_pos, end_pos - start_pos);
       std::string value;
+
       if (cache.get(key, value)) {
         json response = {{"key", key}, {"value", value}, {"status", "success"}};
         return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
