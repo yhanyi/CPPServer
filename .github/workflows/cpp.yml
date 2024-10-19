@@ -1,0 +1,35 @@
+name: C++ CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake g++ libgtest-dev libcurl4-openssl-dev nlohmann-json3-dev
+        cd /usr/src/gtest
+        sudo cmake CMakeLists.txt
+        sudo make
+        sudo cp lib/libgtest*.a /usr/lib
+
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake ..
+        make
+
+    - name: Test
+      run: |
+        cd build
+        ./server_tests
