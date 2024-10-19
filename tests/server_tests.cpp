@@ -13,37 +13,27 @@ size_t WriteCallback(void *contents, size_t size, size_t nmemb,
 class ServerTest : public ::testing::Test {
 protected:
   std::unique_ptr<std::thread> server_thread;
-  std::atomic<bool> should_stop{false};
+  std::shared_ptr<std::atomic<bool>> stop_signal;
   int port;
 
   void SetUp() override {
     static int next_port = 8081;
     port = next_port++;
-    should_stop = false;
-
+    stop_signal = std::make_shared<std::atomic<bool>>(false);
     server_thread = std::make_unique<std::thread>([this]() {
       try {
-        int retry_count = 0;
-        while (retry_count < 3) {
-          try {
-            HttpServer server(port + retry_count);
-            server.start();
-            break;
-          } catch (const std::runtime_error &e) {
-            retry_count++;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-          }
-        }
+        HttpServer server(port, *stop_signal);
+        server.start();
       } catch (const std::exception &e) {
         std::cerr << "Server error: " << e.what() << std::endl;
       }
     });
 
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
   }
 
   void TearDown() override {
-    should_stop = true;
+    stop_signal->store(true);
     if (server_thread && server_thread->joinable()) {
       server_thread->join();
     }
