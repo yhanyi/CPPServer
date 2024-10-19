@@ -16,20 +16,12 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake g++ libgtest-dev libcurl4-openssl-dev nlohmann-json3-dev
+        sudo apt-get install -y g++ libgtest-dev libcurl4-openssl-dev
         cd /usr/src/gtest
-        sudo cmake CMakeLists.txt
         sudo make
         sudo cp lib/libgtest*.a /usr/lib
 
-    - name: Build
+    - name: Build and Test
       run: |
-        mkdir build
-        cd build
-        cmake ..
-        make
-
-    - name: Test
-      run: |
-        cd build
+        make all
         ./server_tests
