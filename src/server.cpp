@@ -1,6 +1,7 @@
 #ifndef SERVER_HPP
 #define SERVER_HPP
 
+#include "cache.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -24,9 +25,29 @@ private:
   int port;
   std::atomic<bool> &stop_signal;
   static const int BUFFER_SIZE = 1024;
+  LRUCache<std::string, std::string> cache;
 
   std::string handle_request(const std::string &request) {
-    if (request.find("GET /api/hello") != std::string::npos) {
+    if (request.find("GET /api/cached") != std::string::npos) {
+      std::string endpoint = "/api/cached";
+      std::string cached_response;
+      if (cache.get(endpoint, cached_response)) {
+        return cached_response;
+      }
+
+      std::this_thread::sleep_for(std::chrono::seconds(2));
+      json response = {
+          {"message", "This response was expensive to compute! :("},
+          {"cached", false},
+          {"timestamp",
+           std::chrono::system_clock::now().time_since_epoch().count()}};
+      std::string full_response =
+          "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
+          response.dump();
+      cache.put(endpoint, full_response);
+      return full_response;
+
+    } else if (request.find("GET /api/hello") != std::string::npos) {
       json response = {{"message", "Hello, World!"}, {"status", "success"}};
       return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
              response.dump();
@@ -56,7 +77,8 @@ private:
 public:
   HttpServer(int port = 8080,
              std::atomic<bool> &stop = *new std::atomic<bool>(false))
-      : port(port), stop_signal(stop) {};
+      : port(port), stop_signal(stop),
+        cache(1024, std::chrono::seconds(300)) {};
 
   void start() {
     struct sockaddr_in address;
