@@ -16,10 +16,12 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y g++ libgtest-dev libcurl4-openssl-dev
-        cd /usr/src/gtest
-        sudo make
-        sudo cp lib/libgtest*.a /usr/lib
+        sudo apt-get install -y g++ libgtest-dev libcurl4-openssl-dev googletest
+
+    - name: Download json.hpp
+      run: |
+        mkdir -p nlohmann
+        curl -o nlohmann/json.hpp https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp
 
     - name: Build and Test
       run: |
