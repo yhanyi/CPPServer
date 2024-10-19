@@ -1,10 +1,10 @@
 # CPPServer
 
-A simple HTTP server with JSON API written in C++. Trying to implement a simple cache within the server, something like Redis.
+A simple HTTP server with JSON API written in C++. Trying to implement a simple LRU cache with TTL eviction policy, something similar to Redis.
 
 To compile, run `make`.
 
-To start the server, run `./server`
+To start the server, run `./server`, then `curl` with in separate terminal instances.
 
 The server currently supports six endpoints:
 
@@ -15,7 +15,7 @@ The server currently supports six endpoints:
 5. `GET /api/cache/stats` - Access cache statistics
 6. `POST /api/cache/clear` - Clear cache
 
-You can test with `curl` by running the following on a separate terminal instance after starting the server:
+Here are some `curl` commands you can run after starting the server to try this server cache:
 
 - `GET /api/hello`
   - `curl http://localhost:8080/api/hello`
