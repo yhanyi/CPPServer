@@ -17,27 +17,59 @@ protected:
   int port;
 
   void SetUp() override {
-    static int next_port = 8081;
-    port = next_port++;
+    // Use random port between 10000-65535
+    port = 10000 + (rand() % 55535);
     stop_signal = std::make_shared<std::atomic<bool>>(false);
-    server_thread = std::make_unique<std::thread>([this]() {
-      try {
-        HttpServer server(port, *stop_signal);
-        server.start();
-      } catch (const std::exception &e) {
-        std::cerr << "Server error: " << e.what() << std::endl;
-      }
-    });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Retry server start with different ports if bind fails
+    bool server_started = false;
+    int retry_count = 0;
+    const int MAX_RETRIES = 5;
+
+    while (!server_started && retry_count < MAX_RETRIES) {
+      try {
+        server_thread = std::make_unique<std::thread>([this]() {
+          HttpServer server(port, *stop_signal);
+          server.start();
+        });
+
+        // Wait and verify server is listening
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        CURL *curl = curl_easy_init();
+        if (curl) {
+          std::string url =
+              "http://localhost:" + std::to_string(port) + "/api/hello";
+          curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+          curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+          CURLcode res = curl_easy_perform(curl);
+          curl_easy_cleanup(curl);
+          if (res == CURLE_OK) {
+            server_started = true;
+            break;
+          }
+        }
+      } catch (...) {
+        if (server_thread && server_thread->joinable()) {
+          stop_signal->store(true);
+          server_thread->join();
+        }
+        port = 10000 + (rand() % 55535);
+        retry_count++;
+      }
+    }
+
+    if (!server_started) {
+      FAIL() << "Failed to start server after " << MAX_RETRIES << " attempts";
+    }
   }
 
   void TearDown() override {
-    stop_signal->store(true);
     if (server_thread && server_thread->joinable()) {
+      stop_signal->store(true);
       server_thread->join();
     }
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // Add longer delay between tests
+    std::this_thread::sleep_for(std::chrono::seconds(3));
   }
 
   std::string makeRequest(const std::string &endpoint,
@@ -92,15 +124,109 @@ TEST_F(ServerTest, TestEchoEndpoint) {
   EXPECT_EQ(response_json["echo"], test_data);
 }
 
-// TEST_F(ServerTest, TestCachedEndpoint) {
-//     std::string response1 = makeRequest("/api/cached");
-//     json response_json1 = json::parse(response1);
-//     EXPECT_FALSE(response_json1["cached"]);
-//
-//     std::string response2 = makeRequest("/api/cached");
-//     json response_json2 = json::parse(response2);
-//     EXPECT_EQ(response2, response1);
-// }
+TEST_F(ServerTest, TestCacheAddEntry) {
+  json test_data = {{"key", "test_key"}, {"value", "test_value"}, {"ttl", 60}};
+  std::string response = makeRequest("/api/cached", "POST", test_data.dump());
+  json response_json = json::parse(response);
+
+  EXPECT_EQ(response_json["status"], "success");
+  EXPECT_EQ(response_json["key"], "test_key");
+  EXPECT_EQ(response_json["ttl"], 60);
+}
+
+TEST_F(ServerTest, TestCacheRetrieveEntry) {
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  // Add entry
+  json test_data = {{"key", "test_key"}, {"value", "test_value"}, {"ttl", 60}};
+
+  // Print request details for debugging
+  std::cout << "Sending POST to port " << port << std::endl;
+  std::string add_response =
+      makeRequest("/api/cached", "POST", test_data.dump());
+  std::cout << "POST response: " << add_response << std::endl;
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  // Get entry with proper HTTP headers
+  std::cout << "Sending GET to port " << port << std::endl;
+  std::string get_response = makeRequest("/api/cached/test_key");
+  std::cout << "GET response: " << get_response << std::endl;
+
+  try {
+    json response_json = json::parse(get_response);
+    EXPECT_EQ(response_json["status"], "success");
+    EXPECT_EQ(response_json["key"], "test_key");
+    EXPECT_EQ(response_json["value"], "test_value");
+  } catch (const json::parse_error &e) {
+    FAIL() << "Invalid JSON response: " << e.what()
+           << "\nResponse was: " << get_response;
+  }
+}
+
+TEST_F(ServerTest, TestCacheKeyNotFound) {
+  // Add wait to ensure server is ready
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  try {
+    std::string response = makeRequest("/api/cached/nonexistent_key", "GET");
+    std::cout << "Raw response: " << response << std::endl;
+
+    if (response.empty()) {
+      FAIL() << "Empty response received";
+    }
+
+    json response_json = json::parse(response);
+    EXPECT_EQ(response_json["status"], "error");
+    EXPECT_EQ(response_json["error"], "Key not found");
+  } catch (const json::parse_error &e) {
+    FAIL() << "JSON parse error: " << e.what();
+  } catch (const std::exception &e) {
+    FAIL() << "Other error: " << e.what();
+  }
+}
+
+TEST_F(ServerTest, TestCacheExpiry) {
+  json test_data = {
+      {"key", "expiring_key"},
+      {"value", "test_value"},
+      {"ttl", 1} // 1 second TTL
+  };
+  makeRequest("/api/cached", "POST", test_data.dump());
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+
+  std::string response = makeRequest("/api/cached/expiring_key");
+  json response_json = json::parse(response);
+
+  EXPECT_EQ(response_json["status"], "error");
+  EXPECT_EQ(response_json["error"], "Key not found");
+}
+
+TEST_F(ServerTest, TestCacheClear) {
+  // Add entry
+  json test_data = {{"key", "test_key"}, {"value", "test_value"}};
+  makeRequest("/api/cached", "POST", test_data.dump());
+
+  // Clear cache
+  std::string clear_response = makeRequest("/api/cache/clear", "POST");
+  json clear_json = json::parse(clear_response);
+  EXPECT_EQ(clear_json["status"], "success");
+
+  // Try to retrieve cleared entry
+  std::string get_response = makeRequest("/api/cached/test_key");
+  json get_json = json::parse(get_response);
+  EXPECT_EQ(get_json["status"], "error");
+}
+
+TEST_F(ServerTest, TestInvalidJSON) {
+  std::string invalid_json = "{invalid_json}";
+  std::string response = makeRequest("/api/cached", "POST", invalid_json);
+  json response_json = json::parse(response);
+
+  EXPECT_EQ(response_json["status"], "error");
+  EXPECT_EQ(response_json["error"], "Invalid JSON");
+}
 
 int main(int argc, char **argv) {
   testing::InitGoogleTest(&argc, argv);
