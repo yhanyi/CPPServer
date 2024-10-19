@@ -28,29 +28,45 @@ private:
   LRUCache<std::string, std::string> cache;
 
   std::string handle_request(const std::string &request) {
-    if (request.find("GET /api/cached") != std::string::npos) {
-      std::string endpoint = "/api/cached";
-      std::string cached_response;
-      if (cache.get(endpoint, cached_response)) {
-        return cached_response;
+    if (request.find("POST /api/cached") != std::string::npos) {
+      size_t body_start = request.find("\r\n\r\n") + 4;
+      if (body_start != std::string::npos) {
+        try {
+          json request_body = json::parse(request.substr(body_start));
+          std::string key = request_body["key"].get<std::string>();
+          std::string value = request_body["value"].get<std::string>();
+          int ttl = request_body.value("ttl", 300);
+          cache.put(key, value, std::chrono::seconds(ttl));
+          json response = {{"message", "Entry cached successfully"},
+                           {"key", key},
+                           {"ttl", ttl},
+                           {"status", "success"}};
+          return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
+                 response.dump();
+        } catch (const json::parse_error &e) {
+          json error = {{"error", "Invalid JSON"}, {"status", "error"}};
+          return "HTTP/1.1 400 Bad Request\r\nContent-Type: "
+                 "application/json\r\n\r\n" +
+                 error.dump();
+        }
       }
-      std::this_thread::sleep_for(std::chrono::seconds(2));
-      json response = {
-          {"message", "This response was expensive to compute! :("},
-          {"cached", false},
-          {"timestamp",
-           std::chrono::system_clock::now().time_since_epoch().count()}};
-      std::string full_response =
-          "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
-          response.dump();
-      cache.put(endpoint, full_response);
-      return full_response;
     }
 
-    else if (request.find("GET /api/cache/stats") != std::string::npos) {
-      json response = {{"cache_size", cache.size()}, {"cache_capacity", 1024}};
-      return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
-             response.dump();
+    else if (request.find("GET /api/cached") != std::string::npos) {
+      std::string key = request.substr(request.find("/api/cached") + 12);
+      key = key.substr(0, key.find(" "));
+
+      std::string value;
+      if (cache.get(key, value)) {
+        json response = {{"key", key}, {"value", value}, {"status", "success"}};
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
+               response.dump();
+      } else {
+        json error = {{"error", "Key not found"}, {"status", "error"}};
+        return "HTTP/1.1 404 Not Found\r\nContent-Type: "
+               "application/json\r\n\r\n" +
+               error.dump();
+      }
     }
 
     else if (request.find("POST /api/cache/clear") != std::string::npos) {
@@ -67,7 +83,6 @@ private:
     }
 
     else if (request.find("POST /api/echo") != std::string::npos) {
-      // Extract JSON body
       size_t body_start = request.find("\r\n\r\n") + 4;
       if (body_start != std::string::npos) {
         try {
