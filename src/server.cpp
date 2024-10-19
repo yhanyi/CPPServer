@@ -34,7 +34,6 @@ private:
       if (cache.get(endpoint, cached_response)) {
         return cached_response;
       }
-
       std::this_thread::sleep_for(std::chrono::seconds(2));
       json response = {
           {"message", "This response was expensive to compute! :("},
@@ -46,12 +45,28 @@ private:
           response.dump();
       cache.put(endpoint, full_response);
       return full_response;
+    }
 
-    } else if (request.find("GET /api/hello") != std::string::npos) {
+    else if (request.find("GET /api/cache/stats") != std::string::npos) {
+      json response = {{"cache_size", cache.size()}, {"cache_capacity", 1024}};
+      return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
+             response.dump();
+    }
+
+    else if (request.find("POST /api/cache/clear") != std::string::npos) {
+      cache.clear();
+      json response = {{"message", "Cache cleared"}, {"status", "success"}};
+      return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
+             response.dump();
+    }
+
+    else if (request.find("GET /api/hello") != std::string::npos) {
       json response = {{"message", "Hello, World!"}, {"status", "success"}};
       return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
              response.dump();
-    } else if (request.find("POST /api/echo") != std::string::npos) {
+    }
+
+    else if (request.find("POST /api/echo") != std::string::npos) {
       // Extract JSON body
       size_t body_start = request.find("\r\n\r\n") + 4;
       if (body_start != std::string::npos) {
