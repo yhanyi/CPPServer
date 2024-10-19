@@ -1,6 +1,7 @@
 #ifndef CACHE_HPP
 #define CACHE_HPP
 
+#include <algorithm>
 #include <chrono>
 #include <list>
 #include <mutex>
