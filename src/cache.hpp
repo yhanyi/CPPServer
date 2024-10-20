@@ -1,6 +1,7 @@
 #ifndef CACHE_HPP
 #define CACHE_HPP
 
+#include "metrics.hpp"
 #include <algorithm>
 #include <chrono>
 #include <list>
@@ -21,19 +22,26 @@ private:
   std::unordered_map<K, CacheEntry> cache_map;
   std::list<K> lru_list;
   std::chrono::seconds default_ttl;
+  std::unique_ptr<CacheMetrics> metrics;
 
   void evict() {
     if (!lru_list.empty()) {
       auto last = lru_list.back();
       lru_list.pop_back();
       cache_map.erase(last);
+      metrics->record_eviction();
+      metrics->update_size(cache_map.size());
     }
   }
 
 public:
   LRUCache(size_t size = 1024,
            std::chrono::seconds ttl = std::chrono::seconds(300))
-      : capacity(size), default_ttl(ttl) {}
+      : capacity(size), default_ttl(ttl),
+        metrics(std::make_unique<CacheMetrics>()) {
+    metrics->update_size(0);
+    metrics->update_memory(0);
+  }
 
   void put(const K &key, const V &value,
            std::chrono::seconds ttl = std::chrono::seconds(0)) {
@@ -66,11 +74,14 @@ public:
 
     auto it = cache_map.find(key);
     if (it == cache_map.end()) {
+      metrics->record_miss();
       return false;
     }
 
     if (std::chrono::steady_clock::now() > it->second.expiry) {
       cache_map.erase(it);
+      metrics->record_expired();
+      metrics->update_size(cache_map.size());
       auto list_it = std::find(lru_list.begin(), lru_list.end(), key);
       if (list_it != lru_list.end()) {
         lru_list.erase(list_it);
@@ -78,6 +89,7 @@ public:
       return false;
     }
 
+    metrics->record_hit();
     value = it->second.value;
 
     auto list_it = std::find(lru_list.begin(), lru_list.end(), key);
