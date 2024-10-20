@@ -1,10 +1,17 @@
 CXX = g++
 CXXFLAGS = -std=c++17 -I. -I/usr/include/nlohmann -I/opt/homebrew/include
-LDFLAGS = -pthread
+LDFLAGS = -pthread -L/opt/homebrew/lib
 
-# Prometheus flags - adjust paths based on your installation
-PROMETHEUS_INCLUDE = -I/usr/local/include
+PROMETHEUS_INCLUDE = -I/usr/local/include -I/opt/homebrew/include
 PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
+
+ifeq ($(shell uname), Darwin)
+    PROMETHEUS_INCLUDE += -I/opt/homebrew/include
+    LDFLAGS += -L/opt/homebrew/lib
+else
+    PROMETHEUS_INCLUDE += -I/usr/local/include
+    LDFLAGS += -L/usr/local/lib
+endif
 
 all: server tests cache_tests
 

@@ -1,28 +1,25 @@
 name: C++ CI
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
-
+    runs-on: macos-latest
     steps:
     - uses: actions/checkout@v2
-
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y g++ libgtest-dev libcurl4-openssl-dev googletest
-
-    - name: Download json.hpp
+        brew install nlohmann-json
+        brew install googletest
+        brew install curl
+        brew install prometheus
+        brew install prometheus-cpp
+    - name: Start Prometheus
       run: |
-        mkdir -p nlohmann
-        curl -o nlohmann/json.hpp https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp
-
+        prometheus --config.file=./prometheus.yml &
+        sleep 5
     - name: Build and Test
       run: |
         make all
