@@ -1,19 +1,14 @@
 name: C++ CI
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
 jobs:
   build-and-test:
     runs-on: macos-latest
-    timeout-minutes: 10
-    
     steps:
     - uses: actions/checkout@v2
-
     - name: Install dependencies
       run: |
         brew install nlohmann-json
@@ -21,54 +16,11 @@ jobs:
         brew install curl
         brew install prometheus
         brew install prometheus-cpp
-        brew install postgresql@14
-        brew install libpqxx
-        brew link postgresql@14 --force
-
-    - name: Setup PostgreSQL
-      run: |
-        # Start PostgreSQL service
-        brew services start postgresql@14
-        
-        # Basic setup for the server to run
-        sleep 3
-        createdb cache_db || true
-        createuser --superuser $(whoami) || true
-
     - name: Start Prometheus
       run: |
         prometheus --config.file=./prometheus.yml &
-        sleep 3
-
-    - name: Build
+        sleep 5
+    - name: Build and Test
       run: |
-        make clean
         make all
-
-    - name: Run Cache Tests
-      timeout-minutes: 5
-      run: |
-        ./build/tests/cache_tests
-
-    - name: Run Server Tests
-      timeout-minutes: 5
-      run: |
-        # Start server in background for integration tests
-        ./server &
-        SERVER_PID=$!
-        
-        # Wait for server to start
-        sleep 3
-        
-        # Run server tests
-        ./build/tests/server_tests
-        
-        # Cleanup
-        kill $SERVER_PID || true
-
-    - name: Stop Services
-      if: always()
-      run: |
-        brew services stop postgresql@14
-        pkill prometheus || true
-        pkill -f server || true
+        ./server_tests

@@ -5,7 +5,6 @@ LDFLAGS = -pthread -L/opt/homebrew/lib
 PROMETHEUS_INCLUDE = -I/usr/local/include -I/opt/homebrew/include
 PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
 
-# Add PostgreSQL flags
 PG_INCLUDE = -I/opt/homebrew/include
 PG_LIBS = -lpqxx
 

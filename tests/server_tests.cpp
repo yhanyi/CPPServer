@@ -1,8 +1,6 @@
 #include "../src/server.cpp"
 #include <atomic>
-#include <chrono>
 #include <curl/curl.h>
-#include <future>
 #include <gtest/gtest.h>
 #include <thread>
 
@@ -17,39 +15,52 @@ protected:
   std::unique_ptr<std::thread> server_thread;
   std::shared_ptr<std::atomic<bool>> stop_signal;
   int port;
-  const int TEST_TIMEOUT = 10;
 
   void SetUp() override {
+    // Use random port between 10000-65535
     port = 10000 + (rand() % 55535);
     stop_signal = std::make_shared<std::atomic<bool>>(false);
 
-    server_thread = std::make_unique<std::thread>([this]() {
-      HttpServer server(port, *stop_signal);
-      server.start();
-    });
+    // Retry server start with different ports if bind fails
+    bool server_started = false;
+    int retry_count = 0;
+    const int MAX_RETRIES = 5;
 
-    // Wait for server to start with timeout
-    auto start_time = std::chrono::steady_clock::now();
-    bool server_ready = false;
-    while (!server_ready && std::chrono::duration_cast<std::chrono::seconds>(
-                                std::chrono::steady_clock::now() - start_time)
-                                    .count() < TEST_TIMEOUT) {
-      CURL *curl = curl_easy_init();
-      if (curl) {
-        std::string url =
-            "http://localhost:" + std::to_string(port) + "/api/hello";
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-        CURLcode res = curl_easy_perform(curl);
-        curl_easy_cleanup(curl);
-        if (res == CURLE_OK) {
-          server_ready = true;
-          break;
+    while (!server_started && retry_count < MAX_RETRIES) {
+      try {
+        server_thread = std::make_unique<std::thread>([this]() {
+          HttpServer server(port, *stop_signal);
+          server.start();
+        });
+
+        // Wait and verify server is listening
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        CURL *curl = curl_easy_init();
+        if (curl) {
+          std::string url =
+              "http://localhost:" + std::to_string(port) + "/api/hello";
+          curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+          curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+          CURLcode res = curl_easy_perform(curl);
+          curl_easy_cleanup(curl);
+          if (res == CURLE_OK) {
+            server_started = true;
+            break;
+          }
         }
+      } catch (...) {
+        if (server_thread && server_thread->joinable()) {
+          stop_signal->store(true);
+          server_thread->join();
+        }
+        port = 10000 + (rand() % 55535);
+        retry_count++;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    ASSERT_TRUE(server_ready) << "Server failed to start within timeout";
+
+    if (!server_started) {
+      FAIL() << "Failed to start server after " << MAX_RETRIES << " attempts";
+    }
   }
 
   void TearDown() override {
@@ -58,7 +69,7 @@ protected:
       server_thread->join();
     }
     // Add longer delay between tests
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(3));
   }
 
   std::string makeRequest(const std::string &endpoint,
@@ -177,8 +188,9 @@ TEST_F(ServerTest, TestCacheKeyNotFound) {
 
 TEST_F(ServerTest, TestCacheExpiry) {
   json test_data = {
-      {"key", "expiring_key"}, {"value", "test_value"}, {"ttl", 1}
-      // 1 second TTL
+      {"key", "expiring_key"},
+      {"value", "test_value"},
+      {"ttl", 1} // 1 second TTL
   };
   makeRequest("/api/cached", "POST", test_data.dump());
 
