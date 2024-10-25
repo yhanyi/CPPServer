@@ -1,14 +1,33 @@
 name: C++ CI
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
 jobs:
   build-and-test:
     runs-on: macos-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cache_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - uses: actions/checkout@v2
+
     - name: Install dependencies
       run: |
         brew install nlohmann-json
@@ -16,11 +35,52 @@ jobs:
         brew install curl
         brew install prometheus
         brew install prometheus-cpp
+        brew install postgresql@14
+        brew install libpqxx
+        brew link postgresql@14
+        
+    - name: Setup PostgreSQL
+      run: |
+        createdb cache_db
+        createuser --superuser $USER
+        
     - name: Start Prometheus
       run: |
         prometheus --config.file=./prometheus.yml &
         sleep 5
-    - name: Build and Test
+
+    - name: Build
       run: |
+        make clean
         make all
+
+    - name: Run Server Tests
+      run: |
         ./server_tests
+
+    - name: Run Database Tests
+      run: |
+        ./database_tests
+
+    - name: Run Cache Tests
+      run: |
+        ./cache_tests
+
+    - name: Run Integration Tests
+      run: |
+        # Start server in background
+        ./server &
+        SERVER_PID=$!
+        sleep 5
+        
+        # Run some basic integration tests
+        curl -X POST http://localhost:8080/api/cached \
+          -H "Content-Type: application/json" \
+          -d '{"key":"test","value":"value","ttl":300}'
+        
+        curl http://localhost:8080/api/cached/test
+        
+        curl -O -J "http://localhost:8080/api/export"
+        
+        # Cleanup
+        kill $SERVER_PID
