@@ -1,82 +1,46 @@
-name: C++ CI
+CXX = g++
+CXXFLAGS = -std=c++17 -O2 -Wall -pthread -I. -I/usr/include/nlohmann
+CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include
+LDFLAGS = -pthread -L/opt/homebrew/lib -L/usr/local/lib
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+# Add PostgreSQL flags
+PG_INCLUDE = -I/opt/homebrew/include
+PG_LIBS = -L/opt/homebrew/lib -lpqxx
 
-jobs:
-  build-and-test:
-    runs-on: macos-latest
-    timeout-minutes: 10
-    
-    steps:
-    - uses: actions/checkout@v2
+# Prometheus settings
+PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
 
-    - name: Install dependencies
-      run: |
-        brew install nlohmann-json
-        brew install googletest
-        brew install curl
-        brew install prometheus
-        brew install prometheus-cpp
-        brew install postgresql@14
-        brew install libpqxx
-        brew link postgresql@14 --force
+# Test settings
+TEST_LIBS = -lgtest -lgtest_main
+SERVER_TEST_LIBS = $(TEST_LIBS) -lcurl
 
-    - name: Setup PostgreSQL
-      run: |
-        # Stop PostgreSQL service if running
-        brew services stop postgresql@14 || true
-        
-        # Start PostgreSQL service
-        brew services start postgresql@14
-        
-        # Wait for PostgreSQL to be ready
-        max_attempts=30
-        attempt=0
-        until pg_isready -h localhost || [ $attempt -eq $max_attempts ]; do
-          attempt=$((attempt + 1))
-          echo "Waiting for PostgreSQL (attempt: $attempt)..."
-          sleep 1
-        done
-        
-        if ! pg_isready -h localhost; then
-          echo "PostgreSQL failed to start"
-          exit 1
-        fi
-        
-        # Setup test database and permissions
-        psql postgres -c "SELECT version();"
-        psql postgres -c "DROP DATABASE IF EXISTS cache_db;"
-        psql postgres -c "CREATE DATABASE cache_db;"
-        psql postgres -c "CREATE USER runner WITH SUPERUSER LOGIN;" || echo "User already exists"
-        psql postgres -c "GRANT ALL PRIVILEGES ON DATABASE cache_db TO runner;"
-        psql postgres -c "\l"  # List databases for debugging
-        
-        # Set environment variables for tests
-        echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
-        echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
-        echo "POSTGRES_DB=cache_db" >> $GITHUB_ENV
-        echo "POSTGRES_USER=runner" >> $GITHUB_ENV
+# Output directories
+BUILD_DIR = build
+TEST_DIR = $(BUILD_DIR)/tests
 
-    - name: Start Prometheus
-      run: |
-        prometheus --config.file=./prometheus.yml &
-        sleep 5
+# Create directories
+$(shell mkdir -p $(BUILD_DIR) $(TEST_DIR))
 
-    - name: Build
-      run: |
-        make clean
-        make all
+# Main server target
+server: src/server.cpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) -DMAIN $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS)
 
-    - name: Run Tests
-      timeout-minutes: 5
-      run: make test
+# Test targets
+all: server $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests
 
-    - name: Stop Services
-      if: always()
-      run: |
-        brew services stop postgresql@14
-        pkill prometheus || true
+$(TEST_DIR)/server_tests: tests/server_tests.cpp src/server.cpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(SERVER_TEST_LIBS)
+
+$(TEST_DIR)/cache_tests: tests/cache_tests.cpp src/cache.hpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(TEST_LIBS)
+
+test: all
+	@echo "Running tests..."
+	@$(TEST_DIR)/cache_tests --gtest_output="xml:$(TEST_DIR)/cache_tests.xml"
+	@$(TEST_DIR)/server_tests --gtest_output="xml:$(TEST_DIR)/server_tests.xml"
+
+clean:
+	rm -rf $(BUILD_DIR)
+	rm -f server
+
+.PHONY: all clean test server
