@@ -2,9 +2,11 @@
 #define SERVER_HPP
 
 #include "cache.hpp"
+#include "database.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <list>
 #include <map>
@@ -28,7 +30,9 @@ private:
   LRUCache<std::string, std::string> cache;
 
   std::string handle_request(const std::string &request) {
-    if (request.find("POST /api/cached") != std::string::npos) {
+    if (request.find("GET /api/export") != std::string::npos) {
+      return export_cache_data();
+    } else if (request.find("POST /api/cached") != std::string::npos) {
       size_t body_start = request.find("\r\n\r\n") + 4;
       if (body_start != std::string::npos) {
         try {
@@ -183,6 +187,53 @@ public:
       }
     }
     close(server_fd);
+  }
+
+  std::string export_cache_data() {
+    try {
+      // Get current timestamp as string
+      auto now = std::chrono::system_clock::now();
+      auto now_t = std::chrono::system_clock::to_time_t(now);
+      std::stringstream ts;
+      ts << std::put_time(std::localtime(&now_t), "%Y-%m-%d %H:%M:%S");
+
+      // Create the export data JSON
+      json export_data = {{"timestamp", ts.str()}, {"entries", json::array()}};
+
+      // Get database connection through cache
+      DatabaseConnection *db = cache.get_db();
+      if (!db) {
+        throw std::runtime_error("Database connection not available");
+      }
+
+      pqxx::work txn(*db->get_connection());
+
+      auto result = txn.exec("SELECT key, value, expiry, created_at "
+                             "FROM cache_entries "
+                             "WHERE expiry > CURRENT_TIMESTAMP");
+
+      for (const auto &row : result) {
+        export_data["entries"].push_back(
+            {{"key", row[0].as<std::string>()},
+             {"value", row[1].as<std::string>()},
+             {"expiry", row[2].as<std::string>()},
+             {"created_at", row[3].as<std::string>()}});
+      }
+
+      txn.commit();
+
+      return "HTTP/1.1 200 OK\r\n"
+             "Content-Type: application/json\r\n"
+             "Content-Disposition: attachment; "
+             "filename=cache_export.json\r\n\r\n" +
+             export_data.dump(2);
+    } catch (const std::exception &e) {
+      json error = {{"error", "Export failed: " + std::string(e.what())},
+                    {"status", "error"}};
+      return "HTTP/1.1 500 Internal Server Error\r\n"
+             "Content-Type: application/json\r\n\r\n" +
+             error.dump();
+    }
   }
 
   ~HttpServer() { close(server_fd); }
