@@ -9,6 +9,7 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-latest
+    timeout-minutes: 10
     
     steps:
     - uses: actions/checkout@v2
@@ -39,11 +40,9 @@ jobs:
         echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
         echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
         echo "POSTGRES_DB=cache_db" >> $GITHUB_ENV
-        
-        # Use default system user and trust authentication
         echo "POSTGRES_USER=$(whoami)" >> $GITHUB_ENV
         echo "POSTGRES_PASSWORD=''" >> $GITHUB_ENV
-
+        
         # Print configuration for debugging
         echo "Database configured with user: $(whoami)"
         psql -l
@@ -59,25 +58,47 @@ jobs:
         make all
 
     - name: Run Server Tests
+      timeout-minutes: 5  # Add timeout for server tests
       run: |
-        ./server_tests
+        # Run tests with timeout
+        timeout 300 ./server_tests || {
+          echo "Server tests timed out or failed"
+          # Cleanup any hanging processes
+          pkill -f server_tests || true
+          exit 1
+        }
 
     - name: Run Database Tests
+      timeout-minutes: 5
       run: |
         ./database_tests
 
     - name: Run Cache Tests
+      timeout-minutes: 5
       run: |
         ./cache_tests
 
     - name: Run Integration Tests
+      timeout-minutes: 5
       run: |
         # Start server in background
         ./server &
         SERVER_PID=$!
-        sleep 5
         
-        # Run some basic integration tests
+        # Wait for server to start
+        max_attempts=30
+        attempt=0
+        while ! curl -s http://localhost:8080/api/hello > /dev/null; do
+          if [ $attempt -ge $max_attempts ]; then
+            echo "Server failed to start"
+            kill $SERVER_PID || true
+            exit 1
+          fi
+          sleep 1
+          ((attempt++))
+        done
+        
+        # Run tests
         curl -X POST http://localhost:8080/api/cached \
           -H "Content-Type: application/json" \
           -d '{"key":"test","value":"value","ttl":300}'
@@ -94,3 +115,5 @@ jobs:
       run: |
         brew services stop postgresql@14
         pkill prometheus || true
+        pkill -f server || true
+        pkill -f server_tests || true
