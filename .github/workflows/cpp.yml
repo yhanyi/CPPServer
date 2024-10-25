@@ -32,20 +32,23 @@ jobs:
 
     - name: Setup PostgreSQL
       run: |
-        # Drop database if exists and recreate
-        dropdb cache_db || true
-        createdb cache_db
-        
-        # Set environment variables for tests
-        echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
-        echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
-        echo "POSTGRES_DB=cache_db" >> $GITHUB_ENV
-        echo "POSTGRES_USER=$(whoami)" >> $GITHUB_ENV
-        echo "POSTGRES_PASSWORD=''" >> $GITHUB_ENV
-        
-        # Print configuration for debugging
-        echo "Database configured with user: $(whoami)"
-        psql -l
+        brew services start postgresql@14
+    
+        # Wait for PostgreSQL to be ready with proper timeout
+        attempt=0
+        until pg_isready || [ $attempt -eq 30 ]; do
+          attempt=$((attempt + 1))
+          echo "Waiting for PostgreSQL (attempt: $attempt)..."
+          sleep 1
+        done
+    
+        if ! pg_isready; then
+          echo "PostgreSQL failed to start"
+          exit 1
+        fi
+    
+        # Create test user with proper permissions
+        createuser -s $USER
 
     - name: Start Prometheus
       run: |
@@ -56,6 +59,12 @@ jobs:
       run: |
         make clean
         make all
+
+    - name: Run Tests
+      timeout-minutes: 15
+      run: |
+        # Run tests in parallel with proper timeout
+        make test -j4
 
     - name: Run Server Tests
       timeout-minutes: 5  # Add timeout for server tests

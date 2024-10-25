@@ -1,53 +1,45 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -I. -I/usr/include/nlohmann -I/opt/homebrew/include
-LDFLAGS = -pthread -L/opt/homebrew/lib
-
-PROMETHEUS_INCLUDE = -I/usr/local/include -I/opt/homebrew/include
-PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
+CXXFLAGS = -std=c++17 -O2 -Wall -pthread -I. -I/usr/include/nlohmann
+CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include
+LDFLAGS = -pthread -L/opt/homebrew/lib -L/usr/local/lib
 
 # Add PostgreSQL flags
 PG_INCLUDE = -I/opt/homebrew/include
 PG_LIBS = -L/opt/homebrew/lib -lpqxx
 
-ifeq ($(shell uname), Darwin)
-    PROMETHEUS_INCLUDE += -I/opt/homebrew/include
-    LDFLAGS += -L/opt/homebrew/lib
-else
-    PROMETHEUS_INCLUDE += -I/usr/local/include
-    LDFLAGS += -L/usr/local/lib
-endif
+# Prometheus settings
+PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
 
-all: server_tests cache_tests database_tests
+# Test settings
+TEST_LIBS = -lgtest -lgtest_main
+SERVER_TEST_LIBS = $(TEST_LIBS) -lcurl
 
-server: src/server.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) -DMAIN $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS)
+# Output directories
+BUILD_DIR = build
+TEST_DIR = $(BUILD_DIR)/tests
 
-database_tests: tests/database_tests.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main
+# Create directories
+$(shell mkdir -p $(BUILD_DIR) $(TEST_DIR))
 
-server_tests: tests/server_tests.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main -lcurl
+# Targets with proper dependencies
+all: $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests $(TEST_DIR)/database_tests
 
-cache_tests: tests/cache_tests.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main
+$(TEST_DIR)/database_tests: tests/database_tests.cpp src/database.hpp src/cache.hpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(TEST_LIBS)
 
-prometheus_deps:
-	@echo "Checking Prometheus dependencies..."
-ifeq ($(shell uname), Darwin)
-	@which brew > /dev/null || (echo "Installing Homebrew..." && /bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)")
-	@brew list prometheus-cpp > /dev/null || (echo "Installing prometheus-cpp..." && brew install prometheus-cpp)
-	@brew list prometheus > /dev/null || (echo "Installing prometheus..." && brew install prometheus)
-	@brew list postgresql@14 > /dev/null || (echo "Installing postgresql..." && brew install postgresql@14)
-	@brew list libpqxx > /dev/null || (echo "Installing libpqxx..." && brew install libpqxx)
-else
-	@which apt-get > /dev/null && ( \
-		sudo apt-get update && \
-		sudo apt-get install -y libprometheus-cpp-dev prometheus postgresql libpqxx-dev \
-	) || echo "Please install dependencies manually"
-endif
+$(TEST_DIR)/server_tests: tests/server_tests.cpp src/server.cpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(SERVER_TEST_LIBS)
+
+$(TEST_DIR)/cache_tests: tests/cache_tests.cpp src/cache.hpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(TEST_LIBS)
+
+test: all
+	@echo "Running tests..."
+	@$(TEST_DIR)/cache_tests --gtest_output="xml:$(TEST_DIR)/cache_tests.xml"
+	@$(TEST_DIR)/database_tests --gtest_output="xml:$(TEST_DIR)/database_tests.xml"
+	@$(TEST_DIR)/server_tests --gtest_output="xml:$(TEST_DIR)/server_tests.xml"
 
 clean:
-	rm -f server server_tests cache_tests database_tests
-	rm -rf data
+	rm -rf $(BUILD_DIR)
 
-.PHONY: all clean tests cache_tests prometheus_deps
+.PHONY: all clean test
