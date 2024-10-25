@@ -1,14 +1,19 @@
 name: C++ CI
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
 jobs:
   build-and-test:
     runs-on: macos-latest
+    timeout-minutes: 10
+    
     steps:
     - uses: actions/checkout@v2
+
     - name: Install dependencies
       run: |
         brew install nlohmann-json
@@ -16,11 +21,62 @@ jobs:
         brew install curl
         brew install prometheus
         brew install prometheus-cpp
+        brew install postgresql@14
+        brew install libpqxx
+        brew link postgresql@14 --force
+
+    - name: Setup PostgreSQL
+      run: |
+        # Stop PostgreSQL service if running
+        brew services stop postgresql@14 || true
+        
+        # Start PostgreSQL service
+        brew services start postgresql@14
+        
+        # Wait for PostgreSQL to be ready
+        max_attempts=30
+        attempt=0
+        until pg_isready -h localhost || [ $attempt -eq $max_attempts ]; do
+          attempt=$((attempt + 1))
+          echo "Waiting for PostgreSQL (attempt: $attempt)..."
+          sleep 1
+        done
+        
+        if ! pg_isready -h localhost; then
+          echo "PostgreSQL failed to start"
+          exit 1
+        fi
+        
+        # Setup test database and permissions
+        psql postgres -c "SELECT version();"
+        psql postgres -c "DROP DATABASE IF EXISTS cache_db;"
+        psql postgres -c "CREATE DATABASE cache_db;"
+        psql postgres -c "CREATE USER runner WITH SUPERUSER LOGIN;" || echo "User already exists"
+        psql postgres -c "GRANT ALL PRIVILEGES ON DATABASE cache_db TO runner;"
+        psql postgres -c "\l"  # List databases for debugging
+        
+        # Set environment variables for tests
+        echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
+        echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
+        echo "POSTGRES_DB=cache_db" >> $GITHUB_ENV
+        echo "POSTGRES_USER=runner" >> $GITHUB_ENV
+
     - name: Start Prometheus
       run: |
         prometheus --config.file=./prometheus.yml &
         sleep 5
-    - name: Build and Test
+
+    - name: Build
       run: |
+        make clean
         make all
-        ./server_tests
+
+    - name: Run Tests
+      timeout-minutes: 5
+      run: make all
+
+    - name: Stop Services
+      if: always()
+      run: |
+        brew services stop postgresql@14
+        pkill prometheus || true
