@@ -9,22 +9,7 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-latest
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: cache_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    
     steps:
     - uses: actions/checkout@v2
 
@@ -37,13 +22,32 @@ jobs:
         brew install prometheus-cpp
         brew install postgresql@14
         brew install libpqxx
-        brew link postgresql@14
-        
+        brew link postgresql@14 --force
+
+    - name: Start PostgreSQL
+      run: |
+        brew services start postgresql@14
+        sleep 3  # Wait for PostgreSQL to start
+
     - name: Setup PostgreSQL
       run: |
+        # Drop database if exists and recreate
+        dropdb cache_db || true
         createdb cache_db
-        createuser --superuser $USER
         
+        # Set environment variables for tests
+        echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
+        echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
+        echo "POSTGRES_DB=cache_db" >> $GITHUB_ENV
+        
+        # Use default system user and trust authentication
+        echo "POSTGRES_USER=$(whoami)" >> $GITHUB_ENV
+        echo "POSTGRES_PASSWORD=''" >> $GITHUB_ENV
+
+        # Print configuration for debugging
+        echo "Database configured with user: $(whoami)"
+        psql -l
+
     - name: Start Prometheus
       run: |
         prometheus --config.file=./prometheus.yml &
@@ -83,4 +87,10 @@ jobs:
         curl -O -J "http://localhost:8080/api/export"
         
         # Cleanup
-        kill $SERVER_PID
+        kill $SERVER_PID || true
+
+    - name: Stop Services
+      if: always()
+      run: |
+        brew services stop postgresql@14
+        pkill prometheus || true

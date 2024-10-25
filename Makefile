@@ -7,7 +7,7 @@ PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
 
 # Add PostgreSQL flags
 PG_INCLUDE = -I/opt/homebrew/include
-PG_LIBS = -lpqxx
+PG_LIBS = -L/opt/homebrew/lib -lpqxx
 
 ifeq ($(shell uname), Darwin)
     PROMETHEUS_INCLUDE += -I/opt/homebrew/include
@@ -17,19 +17,19 @@ else
     LDFLAGS += -L/usr/local/lib
 endif
 
-all: server tests cache_tests database_tests
+all: server_tests cache_tests database_tests
 
 server: src/server.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) -DMAIN src/server.cpp -o server $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS)
-
-tests: tests/server_tests.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) tests/server_tests.cpp -o server_tests $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main -lcurl
-
-cache_tests: tests/cache_tests.cpp src/cache.hpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) tests/cache_tests.cpp -o cache_tests $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main
+	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) -DMAIN $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS)
 
 database_tests: tests/database_tests.cpp
-	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) tests/database_tests.cpp -o database_tests $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main
+	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main
+
+server_tests: tests/server_tests.cpp
+	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main -lcurl
+
+cache_tests: tests/cache_tests.cpp
+	$(CXX) $(CXXFLAGS) $(PROMETHEUS_INCLUDE) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PROMETHEUS_LIBS) $(PG_LIBS) -lgtest -lgtest_main
 
 prometheus_deps:
 	@echo "Checking Prometheus dependencies..."
