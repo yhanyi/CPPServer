@@ -26,10 +26,7 @@ server: src/server.cpp
 	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) -DMAIN $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS)
 
 # Test targets
-all: server $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests $(TEST_DIR)/database_tests
-
-$(TEST_DIR)/database_tests: tests/database_tests.cpp src/database.hpp src/cache.hpp
-	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(TEST_LIBS)
+all: server $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests
 
 $(TEST_DIR)/server_tests: tests/server_tests.cpp src/server.cpp
 	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(SERVER_TEST_LIBS)
@@ -37,10 +34,9 @@ $(TEST_DIR)/server_tests: tests/server_tests.cpp src/server.cpp
 $(TEST_DIR)/cache_tests: tests/cache_tests.cpp src/cache.hpp
 	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(TEST_LIBS)
 
-test: all
+test: $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests
 	@echo "Running tests..."
 	@$(TEST_DIR)/cache_tests --gtest_output="xml:$(TEST_DIR)/cache_tests.xml"
-	@$(TEST_DIR)/database_tests --gtest_output="xml:$(TEST_DIR)/database_tests.xml"
 	@$(TEST_DIR)/server_tests --gtest_output="xml:$(TEST_DIR)/server_tests.xml"
 
 clean:

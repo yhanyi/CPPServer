@@ -1,46 +1,74 @@
-CXX = g++
-CXXFLAGS = -std=c++17 -O2 -Wall -pthread -I. -I/usr/include/nlohmann
-CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include
-LDFLAGS = -pthread -L/opt/homebrew/lib -L/usr/local/lib
+name: C++ CI
 
-# Add PostgreSQL flags
-PG_INCLUDE = -I/opt/homebrew/include
-PG_LIBS = -L/opt/homebrew/lib -lpqxx
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
-# Prometheus settings
-PROMETHEUS_LIBS = -lprometheus-cpp-core -lprometheus-cpp-pull -lz
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    
+    steps:
+    - uses: actions/checkout@v2
 
-# Test settings
-TEST_LIBS = -lgtest -lgtest_main
-SERVER_TEST_LIBS = $(TEST_LIBS) -lcurl
+    - name: Install dependencies
+      run: |
+        brew install nlohmann-json
+        brew install googletest
+        brew install curl
+        brew install prometheus
+        brew install prometheus-cpp
+        brew install postgresql@14
+        brew install libpqxx
+        brew link postgresql@14 --force
 
-# Output directories
-BUILD_DIR = build
-TEST_DIR = $(BUILD_DIR)/tests
+    - name: Setup PostgreSQL
+      run: |
+        # Start PostgreSQL service
+        brew services start postgresql@14
+        
+        # Basic setup for the server to run
+        sleep 3
+        createdb cache_db || true
+        createuser --superuser $(whoami) || true
 
-# Create directories
-$(shell mkdir -p $(BUILD_DIR) $(TEST_DIR))
+    - name: Start Prometheus
+      run: |
+        prometheus --config.file=./prometheus.yml &
+        sleep 3
 
-# Main server target
-server: src/server.cpp
-	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) -DMAIN $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS)
+    - name: Build
+      run: |
+        make clean
+        make all
 
-# Test targets
-all: server $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests
+    - name: Run Cache Tests
+      timeout-minutes: 5
+      run: |
+        ./build/tests/cache_tests
 
-$(TEST_DIR)/server_tests: tests/server_tests.cpp src/server.cpp
-	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(SERVER_TEST_LIBS)
+    - name: Run Server Tests
+      timeout-minutes: 5
+      run: |
+        # Start server in background for integration tests
+        ./server &
+        SERVER_PID=$!
+        
+        # Wait for server to start
+        sleep 3
+        
+        # Run server tests
+        ./build/tests/server_tests
+        
+        # Cleanup
+        kill $SERVER_PID || true
 
-$(TEST_DIR)/cache_tests: tests/cache_tests.cpp src/cache.hpp
-	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS) $(TEST_LIBS)
-
-test: all
-	@echo "Running tests..."
-	@$(TEST_DIR)/cache_tests --gtest_output="xml:$(TEST_DIR)/cache_tests.xml"
-	@$(TEST_DIR)/server_tests --gtest_output="xml:$(TEST_DIR)/server_tests.xml"
-
-clean:
-	rm -rf $(BUILD_DIR)
-	rm -f server
-
-.PHONY: all clean test server
+    - name: Stop Services
+      if: always()
+      run: |
+        brew services stop postgresql@14
+        pkill prometheus || true
+        pkill -f server || true
