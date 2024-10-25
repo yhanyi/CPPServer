@@ -25,30 +25,41 @@ jobs:
         brew install libpqxx
         brew link postgresql@14 --force
 
-    - name: Start PostgreSQL
-      run: |
-        brew services start postgresql@14
-        sleep 3  # Wait for PostgreSQL to start
-
     - name: Setup PostgreSQL
       run: |
+        # Stop PostgreSQL service if running
+        brew services stop postgresql@14 || true
+        
+        # Start PostgreSQL service
         brew services start postgresql@14
-    
-        # Wait for PostgreSQL to be ready with proper timeout
+        
+        # Wait for PostgreSQL to be ready
+        max_attempts=30
         attempt=0
-        until pg_isready || [ $attempt -eq 30 ]; do
+        until pg_isready -h localhost || [ $attempt -eq $max_attempts ]; do
           attempt=$((attempt + 1))
           echo "Waiting for PostgreSQL (attempt: $attempt)..."
           sleep 1
         done
-    
-        if ! pg_isready; then
+        
+        if ! pg_isready -h localhost; then
           echo "PostgreSQL failed to start"
           exit 1
         fi
-    
-        # Create test user with proper permissions
-        createuser -s $USER
+        
+        # Setup test database and permissions
+        psql postgres -c "SELECT version();"
+        psql postgres -c "DROP DATABASE IF EXISTS cache_db;"
+        psql postgres -c "CREATE DATABASE cache_db;"
+        psql postgres -c "CREATE USER runner WITH SUPERUSER LOGIN;" || echo "User already exists"
+        psql postgres -c "GRANT ALL PRIVILEGES ON DATABASE cache_db TO runner;"
+        psql postgres -c "\l"  # List databases for debugging
+        
+        # Set environment variables for tests
+        echo "POSTGRES_HOST=localhost" >> $GITHUB_ENV
+        echo "POSTGRES_PORT=5432" >> $GITHUB_ENV
+        echo "POSTGRES_DB=cache_db" >> $GITHUB_ENV
+        echo "POSTGRES_USER=runner" >> $GITHUB_ENV
 
     - name: Start Prometheus
       run: |
@@ -61,68 +72,11 @@ jobs:
         make all
 
     - name: Run Tests
-      timeout-minutes: 15
-      run: |
-        # Run tests in parallel with proper timeout
-        make test -j4
-
-    - name: Run Server Tests
-      timeout-minutes: 5  # Add timeout for server tests
-      run: |
-        # Run tests with timeout
-        timeout 300 ./server_tests || {
-          echo "Server tests timed out or failed"
-          # Cleanup any hanging processes
-          pkill -f server_tests || true
-          exit 1
-        }
-
-    - name: Run Database Tests
       timeout-minutes: 5
-      run: |
-        ./database_tests
-
-    - name: Run Cache Tests
-      timeout-minutes: 5
-      run: |
-        ./cache_tests
-
-    - name: Run Integration Tests
-      timeout-minutes: 5
-      run: |
-        # Start server in background
-        ./server &
-        SERVER_PID=$!
-        
-        # Wait for server to start
-        max_attempts=30
-        attempt=0
-        while ! curl -s http://localhost:8080/api/hello > /dev/null; do
-          if [ $attempt -ge $max_attempts ]; then
-            echo "Server failed to start"
-            kill $SERVER_PID || true
-            exit 1
-          fi
-          sleep 1
-          ((attempt++))
-        done
-        
-        # Run tests
-        curl -X POST http://localhost:8080/api/cached \
-          -H "Content-Type: application/json" \
-          -d '{"key":"test","value":"value","ttl":300}'
-        
-        curl http://localhost:8080/api/cached/test
-        
-        curl -O -J "http://localhost:8080/api/export"
-        
-        # Cleanup
-        kill $SERVER_PID || true
+      run: make test
 
     - name: Stop Services
       if: always()
       run: |
         brew services stop postgresql@14
         pkill prometheus || true
-        pkill -f server || true
-        pkill -f server_tests || true

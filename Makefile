@@ -21,8 +21,12 @@ TEST_DIR = $(BUILD_DIR)/tests
 # Create directories
 $(shell mkdir -p $(BUILD_DIR) $(TEST_DIR))
 
-# Targets with proper dependencies
-all: $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests $(TEST_DIR)/database_tests
+# Main server target
+server: src/server.cpp
+	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) -DMAIN $< -o $@ $(LDFLAGS) $(PG_LIBS) $(PROMETHEUS_LIBS)
+
+# Test targets
+all: server $(TEST_DIR)/server_tests $(TEST_DIR)/cache_tests $(TEST_DIR)/database_tests
 
 $(TEST_DIR)/database_tests: tests/database_tests.cpp src/database.hpp src/cache.hpp
 	$(CXX) $(CXXFLAGS) $(PG_INCLUDE) $< -o $@ $(LDFLAGS) $(PG_LIBS) $(TEST_LIBS)
@@ -41,5 +45,6 @@ test: all
 
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -f server
 
-.PHONY: all clean test
+.PHONY: all clean test server
