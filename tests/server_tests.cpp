@@ -1,4 +1,4 @@
-#include "../src/server.cpp"
+#include "../src/server.hpp"
 #include <atomic>
 #include <curl/curl.h>
 #include <gtest/gtest.h>
@@ -188,9 +188,8 @@ TEST_F(ServerTest, TestCacheKeyNotFound) {
 
 TEST_F(ServerTest, TestCacheExpiry) {
   json test_data = {
-      {"key", "expiring_key"},
-      {"value", "test_value"},
-      {"ttl", 1} // 1 second TTL
+      {"key", "expiring_key"}, {"value", "test_value"}, {"ttl", 1}
+      // 1 second TTL
   };
   makeRequest("/api/cached", "POST", test_data.dump());
 
