@@ -1,12 +1,20 @@
 # CPPServer
 
-A simple HTTP server with JSON API written in C++. Trying to implement a simple LRU cache with TTL eviction policy, something similar to Redis. Prometheus is also implemented for simple monitoring. Simple testing has also been automated with Github Workflows.
+A simple HTTP server with JSON API written in C++. Implements a Redis-like LRU cache with TTL eviction policy. Features include Prometheus monitoring, Grafana dashboards, and Swagger API documentation. Tests are written with Google Tests and automated with Github Workflows.
+
+This project is not intended to be highly robust or suitable for consistent use; rather, it serves as a way to gain exposure to various open-source technologies.
 
 ### Prerequisites
 
-This project was developed on MacOS and requires Homebrew for dependency management.
+Two ways to run this project:
 
-Required dependencies:
+#### 1. Docker (Recommended)
+- Docker
+- Docker Compose
+
+#### 2. Local Setup (MacOS)
+- Homebrew for dependency management
+- Dependencies:
 ```bash
 brew install nlohmann-json              # JSON for modern C++
 brew install googletest                 # Testing framework
@@ -16,6 +24,19 @@ brew install postgresql@14 libpqxx      # PostgreSQL database with C++ client
 
 ### Setup
 
+#### Docker Setup (Recommended)
+```bash
+# Build and start all services
+docker-compose -f docker/docker-compose.yml up --build
+
+# Stop all services
+docker-compose -f docker/docker-compose.yml down
+
+# Remove all data (including database)
+docker-compose -f docker/docker-compose.yml down -v
+```
+
+#### Local Setup
 1. Install dependencies: `make prometheus_deps`
 2. Start PostgreSQL: `brew services start postgresql@14`
 3. Create database: `createdb cache_db`
@@ -24,7 +45,12 @@ brew install postgresql@14 libpqxx      # PostgreSQL database with C++ client
 6. Start the server: `./server`
 7. Start Prometheus: `prometheus --config.file=./prometheus.yml`
 
-The server runs on `localhost:8080`, Prometheus on `localhost:9090`, and PostgreSQL on `localhost:5432`.
+Services will be available at:
+- API Server: http://localhost:8080
+- Swagger UI: http://localhost:8081
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000
+- PostgreSQL: localhost:5432
 
 ### API Endpoints
 
@@ -80,20 +106,32 @@ Data is automatically synchronised between tiers:
 
 ### Monitoring
 
-1. Open `http://localhost:9090/`
-2. Available metrics:
-   - `cache_hits_total`: Cache hit count
-   - `cache_misses_total`: Cache miss count
-   - `cache_evictions_total`: Number of evicted items
-   - `cache_expired_total`: Number of expired items
-   - `cache_size_bytes`: Current cache size
-   - `cache_memory_usage_bytes`: Memory usage
+#### Grafana Dashboard
+Access the monitoring dashboard at http://localhost:3000
+Features:
+- Cache Performance Graph (hits/misses)
+- Current Cache Size
+- Auto-refresh every 5 seconds
+- Historical data view
 
-To view metrics:
-1. Enter metric name in query box
-2. Click "Execute"
-3. Switch between "Table" and "Graph" views
-4. Refresh after cache operations to see updates
+#### Prometheus Metrics
+Access raw metrics at http://localhost:9090
+Available metrics:
+- `cache_hits_total`: Cache hit count
+- `cache_misses_total`: Cache miss count
+- `cache_evictions_total`: Number of evicted items
+- `cache_expired_total`: Number of expired items
+- `cache_size_bytes`: Current cache size
+- `cache_memory_usage_bytes`: Memory usage
+
+### API Documentation
+
+Access the Swagger UI at http://localhost:8081
+Features:
+- Interactive API documentation
+- Try out endpoints directly in the browser
+- Request/response examples
+- Download OpenAPI specification
 
 ### Database Management
 
@@ -111,5 +149,21 @@ SELECT * FROM cache_entries WHERE expiry > CURRENT_TIMESTAMP;
 # Exit
 \q
 ```
+
+### Docker Services Overview
+
+The project uses several Docker containers:
+- `app`: The main C++ server application
+- `db`: PostgreSQL database for persistence
+- `prometheus`: Metrics collection
+- `grafana`: Metrics visualization
+- `swagger-ui`: API documentation
+
+Configuration files:
+- `docker/docker-compose.yml`: Service definitions
+- `docker/Dockerfile`: C++ application build
+- `prometheus.yml`: Prometheus configuration
+- `docker/grafana/`: Grafana dashboards and configuration
+- `docs/api/openapi.yml`: API specification
 
 Thanks for checking out this project! :)
