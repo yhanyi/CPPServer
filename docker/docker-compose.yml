@@ -17,6 +17,7 @@ services:
       - POSTGRES_DB=cache_db
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
+    restart: on-failure
 
   db:
     image: postgres:14
@@ -53,6 +54,16 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    ports:
+      - "8081:8080"
+    volumes:
+      - ../docs/api/openapi.yml:/usr/share/nginx/html/openapi.yml
+    environment:
+      - URL=/openapi.yml
+    restart: always
 
 volumes:
   postgres_data:

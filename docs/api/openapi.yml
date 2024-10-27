@@ -1,0 +1,209 @@
+openapi: 3.0.0
+info:
+  title: CPP Cache Server API
+  version: 1.0.0
+  description: A distributed caching system with PostgreSQL persistence and TTL support
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /api/hello:
+    get:
+      summary: Health check endpoint
+      description: Simple endpoint to verify if the server is running
+      responses:
+        '200':
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Hello, World!"
+                  status:
+                    type: string
+                    example: "success"
+
+  /api/cached:
+    post:
+      summary: Store data in cache
+      description: Store a key-value pair in the cache with optional TTL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - key
+                - value
+              properties:
+                key:
+                  type: string
+                  description: The key to store the value under
+                  example: "user123"
+                value:
+                  type: string
+                  description: The value to store
+                  example: "John Doe"
+                ttl:
+                  type: integer
+                  description: Time-to-live in seconds (default 300)
+                  example: 3600
+      responses:
+        '200':
+          description: Successfully stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Entry cached successfully"
+                  key:
+                    type: string
+                    example: "user123"
+                  ttl:
+                    type: integer
+                    example: 3600
+                  status:
+                    type: string
+                    example: "success"
+
+  /api/cached/{key}:
+    get:
+      summary: Retrieve cached data
+      description: Get a value from the cache by its key
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: The key to lookup
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    example: "user123"
+                  value:
+                    type: string
+                    example: "John Doe"
+                  status:
+                    type: string
+                    example: "success"
+        '404':
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Key not found"
+                  status:
+                    type: string
+                    example: "error"
+
+  /api/cache/clear:
+    post:
+      summary: Clear the cache
+      description: Remove all entries from the cache
+      responses:
+        '200':
+          description: Cache cleared successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Cache cleared"
+                  status:
+                    type: string
+                    example: "success"
+
+  /api/export:
+    get:
+      summary: Export cache contents
+      description: |
+        Export all non-expired cache entries. This endpoint supports two usage methods:
+
+        ### 1. View JSON in browser/terminal
+        ```bash
+        curl http://localhost:8080/api/export
+        ```
+
+        ### 2. Download as file
+        ```bash
+        curl -O -J "http://localhost:8080/api/export"
+        ```
+
+        The download file will be named `cache_export.json`.
+      responses:
+        '200':
+          description: Cache export data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2024-10-27 02:01:25"
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          example: "user123"
+                        value:
+                          type: string
+                          example: "John Doe"
+                        expiry:
+                          type: string
+                          format: date-time
+                          example: "2024-10-28 02:01:25"
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: "2024-10-27 02:01:25"
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: "attachment; filename=cache_export.json"
+              description: |
+                When using curl -O -J or wget --content-disposition,
+                this header will trigger file download with the specified filename.
+        '500':
+          description: Export failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Export failed: Database connection error"
+                  status:
+                    type: string
+                    example: "error"
+      tags:
+        - Export
